@@ -5,13 +5,18 @@ from cryptography.hazmat.primitives import serialization
 
 class CryptoUtils:
     """
-    提供系统中传统的密码学支持：数字签名、验签和哈希转换。
+    提供系统中传统的密码学支持：
+    1. RSA 密钥对生成 (用于身份认证)
+    2. 数字签名与验签 (确保交易不可篡改)
+    3. 公钥的序列化与反序列化 (用于在区块链/网络中传输)
+    4. SHA-256 哈希计算 (用于区块哈希)
     """
     
     @staticmethod
     def generate_key_pair():
         """
-        生成一对 RSA 密钥，用于数字签名（这是身份证明，非神经网络权重）。
+        生成一对 RSA 密钥。
+        私钥用于签名，公钥作为区块链上的用户地址/身份标识。
         """
         private_key = rsa.generate_private_key(
             public_exponent=65537,
@@ -21,9 +26,30 @@ class CryptoUtils:
         return private_key, public_key
 
     @staticmethod
+    def serialize_public_key(public_key):
+        """
+        将 RSA 公钥对象转换为 PEM 格式的字节串（再转为字符串），以便存储在区块中。
+        """
+        pem = public_key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        )
+        return pem.decode('utf-8')
+
+    @staticmethod
+    def deserialize_public_key(pem_string):
+        """
+        将 PEM 格式的字符串还原为 RSA 公钥对象。
+        """
+        return serialization.load_pem_public_key(
+            pem_string.encode('utf-8')
+        )
+
+    @staticmethod
     def sign_data(private_key, data_string):
         """
-        使用私钥对数据字符串进行签名。返回 16 进制字符串。
+        使用私钥对数据字符串进行签名。
+        返回结果为 16 进制字符串。
         """
         signature = private_key.sign(
             data_string.encode(),
@@ -57,28 +83,23 @@ class CryptoUtils:
 
     @staticmethod
     def get_sha256(data_string):
-        """计算字符串的 SHA-256 哈希值"""
+        """
+        计算字符串的标准 SHA-256 哈希值。
+        """
         return hashlib.sha256(data_string.encode()).hexdigest()
 
-# --- 功能冒烟测试 ---
+# --- 模块测试 ---
 if __name__ == "__main__":
     print(">>> 启动 CryptoUtils 模块测试 <<<")
     
-    # 1. 模拟 Alice 生成签名密钥对
-    alice_priv, alice_pub = CryptoUtils.generate_key_pair()
+    # 1. 测试密钥生成与序列化
+    priv, pub = CryptoUtils.generate_key_pair()
+    pub_str = CryptoUtils.serialize_public_key(pub)
+    print(f"[测试] 公钥序列化成功，长度: {len(pub_str)}")
     
-    # 2. 模拟要存证的交易载荷（例如：IPFS地址 + 密文哈希）
-    tx_payload = "CID:2218d9275e4d09f5;BodyHash:2218d927..."
-    
-    # 3. 发送方执行签名
-    sig = CryptoUtils.sign_data(alice_priv, tx_payload)
-    print(f"[签名] 生成成功, 长度: {len(sig)} 字符")
-    
-    # 4. 验证节点执行验证
-    is_valid = CryptoUtils.verify_signature(alice_pub, sig, tx_payload)
-    print(f"[验证] 原始数据验证结果: {'通过' if is_valid else '失败'}")
-    
-    # 5. 篡改测试
-    tampered_data = tx_payload + "modified_by_attacker"
-    is_valid_tampered = CryptoUtils.verify_signature(alice_pub, sig, tampered_data)
-    print(f"[验证] 篡改数据验证结果: {'通过' if is_valid_tampered else '失败'}")
+    # 2. 测试反序列化与签名验证
+    pub_obj = CryptoUtils.deserialize_public_key(pub_str)
+    msg = "test_message"
+    sig = CryptoUtils.sign_data(priv, msg)
+    if CryptoUtils.verify_signature(pub_obj, sig, msg):
+        print("[测试] 序列化后的公钥验签成功！")

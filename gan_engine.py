@@ -2,8 +2,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
+import os
 
-#v1.1
 # =================================================================
 # 1. 强化版架构设计
 # =================================================================
@@ -113,6 +113,31 @@ class GANCryptoEngine:
             if epoch % 1000 == 0:
                 print(f"Epoch {epoch:4d} | Bob L1: {l_rec.item():.4f} | Eve L1: {l_eve.item():.4f} | Pen: {penalty.item():.4f}")
 
+    # --- 新增：保存模型权重方法 ---
+    def save_weights(self, path="neural_weights.pth"):
+        torch.save({
+            'alice_state_dict': self.alice.state_dict(),
+            'bob_state_dict': self.bob.state_dict(),
+            'eve_state_dict': self.eve.state_dict(),
+        }, path)
+        print(f"[Engine] 模型权重已成功保存至: {path}")
+
+    # --- 新增：加载模型权重方法 ---
+    def load_weights(self, path="neural_weights.pth"):
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"未找到权重文件: {path}")
+        
+        checkpoint = torch.load(path)
+        self.alice.load_state_dict(checkpoint['alice_state_dict'])
+        self.bob.load_state_dict(checkpoint['bob_state_dict'])
+        self.eve.load_state_dict(checkpoint['eve_state_dict'])
+        
+        # 加载后强制进入评估模式
+        self.alice.eval()
+        self.bob.eval()
+        self.eve.eval()
+        print(f"[Engine] 模型权重加载完毕，已就绪。")
+
     def encrypt(self, msg_bits, pub_key):
         self.alice.eval()
         p = torch.tensor(msg_bits).float().view(1, -1) * 2 - 1
@@ -129,42 +154,31 @@ class GANCryptoEngine:
         return (p_rec.squeeze().numpy() > 0).astype(int)
 
 # =================================================================
-# 3. 最终审计逻辑
+# 3. 实验 1 运行与自动保存逻辑
 # =================================================================
 
 if __name__ == "__main__":
     msg_size = 16
     engine = GANCryptoEngine(msg_len=msg_size)
+    
+    # 执行实验 1 训练
     engine.train(epochs=8000)
     
+    # 审计测试
     print("\n" + "="*20 + " 100组随机样本审计 " + "="*20)
     test_rounds = 100
     bob_errors = 0
-    eve_hits = 0
-    
-    # 核心修复：切换到 eval 模式
     engine.alice.eval()
     engine.bob.eval()
-    engine.eve.eval()
 
     for _ in range(test_rounds):
         m = np.random.randint(0, 2, msg_size)
         k = np.random.randn(msg_size)
-        
         c = engine.encrypt(m, k)
         r = engine.decrypt(c, k)
-        
         bob_errors += np.sum(m != r)
-        
-        with torch.no_grad():
-            c_t = torch.tensor(c).float().view(1, -1)
-            # 处于 eval 模式下的 Eve 不再会因为单条数据报错
-            e_out = engine.eve(c_t)
-            e_g = (e_out.squeeze().numpy() > 0).astype(int)
-        eve_hits += np.sum(m == e_g)
 
-    total_bits = test_rounds * msg_size
-    print(f"审计完成！")
-    print(f"Bob 平均位错误率: {bob_errors / total_bits:.2%}")
-    print(f"Eve 平均位命中率: {eve_hits / total_bits:.2%} (理想为 50.0% 附近)")
-    print(f"详细位统计: 错误位 {bob_errors} / {total_bits} | 命中位 {eve_hits} / {total_bits}")
+    print(f"审计完成！Bob 平均位错误率: {bob_errors / (test_rounds * msg_size):.2%}")
+    
+    # --- 关键：保存权重供实验 2 调用 ---
+    engine.save_weights("neural_weights.pth")

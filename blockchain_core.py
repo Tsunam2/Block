@@ -1,123 +1,120 @@
-import hashlib
 import json
 import time
-import sys
-import os
-
-# 将根目录加入路径以便导入 crypto_utils
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from crypto_utils import CryptoUtils
 
 class Transaction:
+    """
+    交易类：封装存证信息。
+    包括发送方公钥、接收方ID、IPFS地址(CID)、密文哈希以及数字签名。
+    """
     def __init__(self, sender_public_key, receiver_id, ipfs_cid, body_hash, signature):
-        self.sender_public_key = sender_public_key  # 这是一个 RSA 公钥对象
+        # 核心逻辑：如果是RSA公钥对象，序列化为PEM字符串存储；如果是字符串则直接存储
+        if not isinstance(sender_public_key, str) and sender_public_key is not None:
+            self.sender_pk = CryptoUtils.serialize_public_key(sender_public_key)
+        else:
+            self.sender_pk = sender_public_key
+            
         self.receiver_id = receiver_id
         self.ipfs_cid = ipfs_cid
-        self.body_hash = body_hash
+        self.body_hash = body_hash  # 密文的哈希值
         self.signature = signature
         self.timestamp = time.time()
 
-    def get_data_to_sign(self):
-        """
-        定义哪些字段参与签名，必须与发送方签名时使用的数据一致
-        """
-        return f"{self.ipfs_cid}{self.body_hash}{self.receiver_id}"
-
     def to_dict(self):
         """
-        将交易对象转换为字典格式，方便 JSON 序列化
+        将交易转换为字典。
+        键名必须与 main.py 中的读取逻辑严格一致。
         """
-        # 使用 repr() 替代可能的旧式反引号，确保在 Python 3 中完全兼容
-        pk_repr = repr(self.sender_public_key)
         return {
-            "sender_pk_hash": hashlib.sha256(pk_repr.encode()).hexdigest()[:16],
-            "receiver": self.receiver_id,
-            "cid": self.ipfs_cid,
-            "hash": self.body_hash,
-            "sig": self.signature,
-            "time": self.timestamp
+            "sender_pk": self.sender_pk,
+            "receiver_id": self.receiver_id,
+            "cid": self.ipfs_cid,          # 对应 main.py 中的 on_chain_tx['cid']
+            "content_hash": self.body_hash, # 对应 main.py 中的 on_chain_tx['content_hash']
+            "signature": self.signature,
+            "timestamp": self.timestamp
         }
 
 class Block:
+    """
+    区块类：包含多个交易的集合。
+    """
     def __init__(self, index, transactions, previous_hash):
         self.index = index
         self.timestamp = time.time()
-        self.transactions = [tx.to_dict() for tx in transactions]
+        # 确保存储的是交易字典列表
+        self.transactions = [tx.to_dict() if hasattr(tx, 'to_dict') else tx for tx in transactions]
         self.previous_hash = previous_hash
         self.hash = self.calculate_hash()
 
     def calculate_hash(self):
-        block_content = json.dumps({
+        block_string = json.dumps({
             "index": self.index,
-            "txs": self.transactions,
-            "prev_hash": self.previous_hash
+            "timestamp": self.timestamp,
+            "transactions": self.transactions,
+            "previous_hash": self.previous_hash
         }, sort_keys=True)
-        return hashlib.sha256(block_content.encode()).hexdigest()
+        return CryptoUtils.get_sha256(block_string)
 
 class Blockchain:
+    """
+    区块链管理器。
+    """
     def __init__(self):
         self.chain = [self.create_genesis_block()]
         self.pending_transactions = []
 
     def create_genesis_block(self):
+        """生成创世区块"""
         return Block(0, [], "0")
 
-    def validate_transaction(self, tx):
+    def get_last_block(self):
         """
-        验证节点核心逻辑：使用发送方公钥校验签名
+        获取链上最后一个区块。
+        修复 AttributeError: 'Blockchain' object has no attribute 'get_last_block'
         """
-        data_to_verify = tx.get_data_to_sign()
-        is_valid = CryptoUtils.verify_signature(
-            tx.sender_public_key, 
-            tx.signature, 
-            data_to_verify
-        )
-        return is_valid
+        return self.chain[-1]
 
     def add_transaction(self, transaction):
-        if self.validate_transaction(transaction):
-            self.pending_transactions.append(transaction)
-            print("[Blockchain] 验证节点: 签名合法，交易已入池")
-            return True
-        else:
-            print("[Blockchain] 验证节点: 签名非法，交易已被丢弃！")
+        """
+        验证并添加交易。
+        """
+        try:
+            # 1. 还原公钥对象用于验签
+            pub_key_obj = CryptoUtils.deserialize_public_key(transaction.sender_pk)
+            
+            # 2. 验证签名 (注意：签名校验的数据必须与 Alice 签名时拼凑的字符串完全一致)
+            # 如果 main.py 报错，请检查 CryptoUtils.verify_signature 的参数顺序
+            is_valid = CryptoUtils.verify_signature(
+                pub_key_obj, 
+                transaction.signature, 
+                transaction.body_hash
+            )
+            
+            if is_valid:
+                self.pending_transactions.append(transaction)
+                pk_brief = transaction.sender_pk[:25].replace('\n', '')
+                print(f"[Blockchain] 交易验证通过，已入池。发送方: {pk_brief}...")
+                return True
+            else:
+                print("[Blockchain] 警告：签名验证失败！")
+                return False
+        except Exception as e:
+            print(f"[Blockchain] 交易处理异常: {e}")
             return False
 
     def mine(self):
+        """
+        打包待处理交易。
+        """
         if not self.pending_transactions:
             return False
-        new_block = Block(len(self.chain), self.pending_transactions, self.chain[-1].hash)
+        
+        new_block = Block(
+            len(self.chain), 
+            self.pending_transactions, 
+            self.get_last_block().hash
+        )
         self.chain.append(new_block)
         self.pending_transactions = []
-        print(f"[Blockchain] 区块 #{new_block.index} 挖掘成功")
+        print(f"[Blockchain] 区块 #{new_block.index} 已成功挂载至主链。")
         return True
-
-# --- 集成测试 ---
-if __name__ == "__main__":
-    print(">>> 启动集成验证测试 <<<\n")
-    
-    # 1. 初始化
-    my_blockchain = Blockchain()
-    alice_priv, alice_pub = CryptoUtils.generate_key_pair()
-    
-    # 2. 模拟 Alice 发送流程
-    fake_cid = "QmXoyp..."
-    fake_hash = "sha256_of_ciphertext"
-    receiver_info = "Bob_Neural_ID"
-    
-    # Alice 对数据进行签名
-    data_to_sign = f"{fake_cid}{fake_hash}{receiver_info}"
-    alice_sig = CryptoUtils.sign_data(alice_priv, data_to_sign)
-    
-    # 3. 构造交易包并发往区块链
-    tx = Transaction(alice_pub, receiver_info, fake_cid, fake_hash, alice_sig)
-    
-    # 4. 验证并打包
-    if my_blockchain.add_transaction(tx):
-        my_blockchain.mine()
-        print("\n[结果] 交易已成功记录在不可篡改的账本中。")
-    
-    # 5. 模拟篡改测试
-    print("\n[攻击模拟] 攻击者尝试用伪造的签名发送交易...")
-    bad_tx = Transaction(alice_pub, receiver_info, fake_cid, fake_hash, "wrong_signature_hex")
-    my_blockchain.add_transaction(bad_tx)

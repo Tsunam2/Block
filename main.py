@@ -1,84 +1,112 @@
 import numpy as np
 import torch
+import json
+import os
 from gan_engine import GANCryptoEngine
 from crypto_utils import CryptoUtils
-# 修正导入：将 NeuralBlockchain 改为 Blockchain
 from blockchain_core import Blockchain, Transaction
 
-def run_demo():
-    print("=== 神经加密区块链集成演示 ===\n")
+# 模拟 IPFS 去中心化存储层
+class MockIPFS:
+    def __init__(self):
+        self.network_storage = {}
+    
+    def upload(self, data):
+        cid = f"QmNeural{CryptoUtils.get_sha256(data)[:16]}"
+        self.network_storage[cid] = data
+        return cid
+    
+    def download(self, cid):
+        return self.network_storage.get(cid)
 
-    # 1. 初始化并训练 GAN 引擎 (模块 1)
+def run_integrated_demo():
+    print(">>> 启动集成系统测试：神经加密 + 区块链存证 <<<\n")
+
+    # 1. 系统初始化
     msg_len = 16
     engine = GANCryptoEngine(msg_len=msg_len)
-    # 增加训练轮数以提高解密准确度
-    print("[系统] 正在进行深度对抗训练，请稍候...")
-    engine.train(epochs=5000) 
-
-    # 2. 初始化区块链 (模块 3)
-    blockchain = Blockchain()
-
-    # 3. 模拟用户 Alice 和 Bob 的身份密钥 (模块 2)
-    alice_sk, alice_pk = CryptoUtils.generate_key_pair()
     
-    # 模拟 GAN 通信所需的共享对称 Key
-    gan_shared_key = np.random.randn(msg_len)
-
-    # 4. 模拟交易生命周期
-    # A. 准备原始数据
-    raw_data = [1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0]
-    print(f"原始明文消息: {raw_data}")
-
-    # B. 加密阶段 (GAN Engine)
-    ciphertext = engine.encrypt(raw_data, gan_shared_key)
-    print(f"GAN 加密完成，生成密文向量 (长度 {len(ciphertext)})")
-
-    # C. 准备交易元数据
-    fake_cid = "QmXoyp_GAN_DATA"
-    cipher_str = str(ciphertext.tolist())
-    
-    # 签名阶段
-    receiver_id = "Bob_Node"
-    data_to_sign = f"{fake_cid}{cipher_str}{receiver_id}"
-    signature = CryptoUtils.sign_data(alice_sk, data_to_sign)
-
-    # D. 广播与验证 (Blockchain Core)
-    new_tx = Transaction(alice_pk, receiver_id, fake_cid, cipher_str, signature)
-    
-    if blockchain.add_transaction(new_tx):
-        print("交易验证通过（身份签名合法），已加入待处理池。")
-    
-    # E. 打包入链
-    print("正在挖矿打包...")
-    if blockchain.mine():
-        mined_block = blockchain.chain[-1]
-        print(f"新区块已记录! Hash: {mined_block.hash}")
-
-    # F. 接收方 Bob 审计与解密
-    print("\n>>> Bob 节点执行审计解密...")
-    tx_on_chain = blockchain.chain[-1].transactions[0]
-    
-    # 从字典中取回密文
-    payload = eval(tx_on_chain['hash']) 
-    recovered_data = engine.decrypt(payload, gan_shared_key)
-    
-    recovered_list = recovered_data.tolist()
-    print(f"Bob 还原的明文: {recovered_list}")
-
-    # G. 安全性对比：Eve 尝试破解
-    c_tensor = torch.tensor(payload).float().view(1, -1)
-    with torch.no_grad():
-        # Eve 只能接触到密文
-        eve_guess = (engine.eve(c_tensor).squeeze().numpy() > 0.5).astype(int)
-    print(f"攻击者 Eve 的猜测: {eve_guess.tolist()}")
-
-    # 最终结果判断
-    success = np.array_equal(raw_data, recovered_list)
-    if success:
-        print("\n[结论] 混合系统运行完美：身份验证与神经解密全部成功！")
+    # 核心检查：如果存在预训练权重，直接加载
+    weights_path = "neural_weights.pth"
+    if os.path.exists(weights_path):
+        print(f"[系统] 检测到 {weights_path}，正在加载预训练神经模型...")
+        # 假设你的 GANCryptoEngine 内部有 torch.load 相关逻辑，或者直接在这里加载
+        # 这里演示直接加载到 engine 的模型中
+        state_dict = torch.load(weights_path)
+        engine.alice.load_state_dict(state_dict['alice_state_dict'])
+        engine.bob.load_state_dict(state_dict['bob_state_dict'])
+        engine.alice.eval()
+        engine.bob.eval()
     else:
-        print("\n[警告] 解密数据不匹配。原因：GAN 训练尚未完全收敛或消息噪声过大。")
-        print(f"错误位统计: {np.sum(np.array(raw_data) != np.array(recovered_list))} / {msg_len}")
+        print("[系统] 未发现权重文件，正在现场训练 GAN 引擎 (2000 epochs)...")
+        engine.train(epochs=2000) 
+
+    ipfs = MockIPFS()
+    blockchain = Blockchain()
+    
+    # 2. 生成身份密钥 (RSA)
+    alice_sk, alice_pk = CryptoUtils.generate_key_pair()
+    # 预共享神经密钥 (噪声向量)
+    shared_neural_key = np.random.randn(msg_len)
+
+    # ==========================================
+    # 流程 A: 发送方 Alice 操作
+    # ==========================================
+    print("\n--- 流程 A: Alice 执行加密与上链 ---")
+    raw_bits = [1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 1, 1, 1, 0, 0]
+    print(f"[Alice] 原始明文: {raw_bits}")
+
+    # Step 1: 神经加密
+    cipher_vec = engine.encrypt(raw_bits, shared_neural_key)
+    cipher_str = json.dumps(cipher_vec.tolist()) 
+    
+    # Step 2: 上传数据到 IPFS
+    cid = ipfs.upload(cipher_str)
+    
+    # Step 3: 计算密文哈希 H 并用 RSA 私钥签名
+    h_value = CryptoUtils.get_sha256(cipher_str)
+    signature = CryptoUtils.sign_data(alice_sk, h_value)
+    
+    # Step 4: 构造交易并提交
+    tx = Transaction(alice_pk, "Bob_Node_ID", cid, h_value, signature)
+    
+    # ==========================================
+    # 流程 B: 区块链网络验证
+    # ==========================================
+    print("\n--- 流程 B: 区块链节点验证 ---")
+    if blockchain.add_transaction(tx):
+        blockchain.mine()
+    else:
+        print("[错误] 签名验证失败！")
+        return
+
+    # ==========================================
+    # 流程 C: 接收方 Bob 操作
+    # ==========================================
+    print("\n--- 流程 C: Bob 提取数据与审计 ---")
+    
+    # 从链上读取最新区块的交易
+    on_chain_tx = blockchain.get_last_block().transactions[0]
+    
+    # 验证身份
+    sender_pk_obj = CryptoUtils.deserialize_public_key(on_chain_tx['sender_pk'])
+    if CryptoUtils.verify_signature(sender_pk_obj, on_chain_tx['signature'], on_chain_tx['content_hash']):
+        print("[Bob] 1. RSA 身份验签通过。")
+        
+        # 下载并校验
+        downloaded_cipher_str = ipfs.download(on_chain_tx['cid'])
+        if CryptoUtils.get_sha256(downloaded_cipher_str) == on_chain_tx['content_hash']:
+            print("[Bob] 2. 密文完整性校验通过。")
+            
+            # 神经解密
+            cipher_vec_final = np.array(json.loads(downloaded_cipher_str))
+            recovered_bits = engine.decrypt(cipher_vec_final, shared_neural_key)
+            
+            print(f"\n[结果] Bob 还原的明文: {recovered_bits.tolist()}")
+            if np.array_equal(raw_bits, recovered_bits):
+                print(">>> 演示成功：全链路验证一致！ <<<")
+            else:
+                print(">>> 提示：解密存在轻微位错误，可能需要增加 GAN 训练轮数。 <<<")
 
 if __name__ == "__main__":
-    run_demo()
+    run_integrated_demo()
