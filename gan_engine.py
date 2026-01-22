@@ -2,60 +2,62 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
-#v1.0
-# --- 1. 神经网络架构设计 ---
+
+#v1.1
+# =================================================================
+# 1. 强化版架构设计
+# =================================================================
+
+class CryptoBlock(nn.Module):
+    def __init__(self, in_dim, out_dim):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(in_dim, out_dim),
+            nn.BatchNorm1d(out_dim),
+            nn.LeakyReLU(0.2)
+        )
+    def forward(self, x):
+        return self.net(x)
 
 class AliceNet(nn.Module):
-    """Alice: 加密网络 (Sender)"""
     def __init__(self, msg_len, key_len):
-        super(AliceNet, self).__init__()
-        self.fc = nn.Sequential(
-            nn.Linear(msg_len + key_len, 256),
-            nn.ReLU(),
-            nn.Linear(256, 256),
-            nn.ReLU(),
-            nn.Linear(256, msg_len),
-            nn.Tanh() 
+        super().__init__()
+        self.main = nn.Sequential(
+            CryptoBlock(msg_len + key_len, 512),
+            CryptoBlock(512, 512),
+            nn.Linear(512, msg_len),
+            nn.Tanh()
         )
-
     def forward(self, p, pk):
-        x = torch.cat((p, pk), dim=1)
-        return self.fc(x)
+        return self.main(torch.cat((p, pk), dim=1))
 
 class BobNet(nn.Module):
-    """Bob: 解密网络 (Receiver)"""
     def __init__(self, msg_len, key_len):
-        super(BobNet, self).__init__()
-        self.fc = nn.Sequential(
-            nn.Linear(msg_len + key_len, 256),
-            nn.ReLU(),
-            nn.Linear(256, 256),
-            nn.ReLU(),
-            nn.Linear(256, msg_len),
+        super().__init__()
+        self.main = nn.Sequential(
+            CryptoBlock(msg_len + key_len, 512),
+            CryptoBlock(512, 512),
+            nn.Linear(512, msg_len),
             nn.Tanh()
         )
-
     def forward(self, c, sk):
-        x = torch.cat((c, sk), dim=1)
-        return self.fc(x)
+        return self.main(torch.cat((c, sk), dim=1))
 
 class EveNet(nn.Module):
-    """Eve: 攻击网络 (Attacker)"""
     def __init__(self, msg_len):
-        super(EveNet, self).__init__()
-        self.fc = nn.Sequential(
-            nn.Linear(msg_len, 512),
-            nn.ReLU(),
-            nn.Linear(512, 256),
-            nn.ReLU(),
-            nn.Linear(256, msg_len),
+        super().__init__()
+        self.main = nn.Sequential(
+            CryptoBlock(msg_len, 512),
+            CryptoBlock(512, 512),
+            nn.Linear(512, msg_len),
             nn.Tanh()
         )
-
     def forward(self, c):
-        return self.fc(c)
+        return self.main(c)
 
-# --- 2. 增强型训练与加密引擎 ---
+# =================================================================
+# 2. 训练引擎
+# =================================================================
 
 class GANCryptoEngine:
     def __init__(self, msg_len=16, key_len=16):
@@ -65,129 +67,104 @@ class GANCryptoEngine:
         self.bob = BobNet(msg_len, key_len)
         self.eve = EveNet(msg_len)
         
-        self.criterion = nn.MSELoss()
-        self.opt_alice_bob = optim.Adam(
-            list(self.alice.parameters()) + list(self.bob.parameters()), 
-            lr=0.0004
-        )
-        self.opt_eve = optim.Adam(self.eve.parameters(), lr=0.0004)
+        self.criterion = nn.L1Loss()
+        self.opt_ab = optim.Adam(list(self.alice.parameters()) + list(self.bob.parameters()), lr=0.0008)
+        self.opt_e = optim.Adam(self.eve.parameters(), lr=0.0008)
         
-        self.history = {"bob_mse": [], "eve_mse": []}
+        self.sched_ab = optim.lr_scheduler.StepLR(self.opt_ab, step_size=2000, gamma=0.5)
+        self.sched_e = optim.lr_scheduler.StepLR(self.opt_e, step_size=2000, gamma=0.5)
 
-    def train(self, epochs=3000, batch_size=128):
-        """执行增强对抗训练并记录历史"""
-        print(f"[GAN] 开始对抗训练 (消息长度: {self.msg_len}, 轮数: {epochs})...")
+    def train(self, epochs=8000, batch_size=256):
+        print(f"[GAN] 启动训练 | 维度: 512 | 目标: 100% 精度")
         
         for epoch in range(epochs):
-            # 准备训练数据
             p = torch.randint(0, 2, (batch_size, self.msg_len)).float() * 2 - 1
             pk = torch.randn(batch_size, self.key_len)
-            sk = pk 
-
+            
             # --- 优化 Eve ---
-            for _ in range(2):
-                self.opt_eve.zero_grad()
-                with torch.no_grad():
-                    c = self.alice(p, pk)
-                p_eve = self.eve(c)
-                l_eve = self.criterion(p_eve, p)
-                l_eve.backward()
-                self.opt_eve.step()
+            self.opt_e.zero_grad()
+            with torch.no_grad():
+                c = self.alice(p, pk)
+            p_eve = self.eve(c)
+            l_eve = self.criterion(p_eve, p)
+            l_eve.backward()
+            self.opt_e.step()
 
             # --- 优化 Alice & Bob ---
-            self.opt_alice_bob.zero_grad()
+            self.opt_ab.zero_grad()
             c_new = self.alice(p, pk)
-            p_bob = self.bob(c_new, sk)
-            
+            p_bob = self.bob(c_new, pk)
             p_eve_adv = self.eve(c_new)
-            l_eve_adv = self.criterion(p_eve_adv, p)
+            
             l_rec = self.criterion(p_bob, p)
+            l_eve_adv = self.criterion(p_eve_adv, p)
             
-            # 对抗损失函数: 惩罚 Eve 预测得太准
-            l_adv = l_rec + torch.pow(1.0 - l_eve_adv, 2)
+            # 惩罚项: (1.0 - Leve_adv)^2
+            expected_error = 1.0
+            penalty = torch.pow(torch.clamp(expected_error - l_eve_adv, min=0), 2)
             
-            l_adv.backward()
-            self.opt_alice_bob.step()
+            total_loss = l_rec + penalty
+            total_loss.backward()
+            self.opt_ab.step()
+            
+            self.sched_ab.step()
+            self.sched_e.step()
 
-            # 记录历史
-            if epoch % 100 == 0:
-                self.history["bob_mse"].append(l_rec.item())
-                self.history["eve_mse"].append(l_eve.item())
-
-            if epoch % 500 == 0:
-                print(f"Epoch {epoch:4d} | Bob MSE: {l_rec.item():.4f} | Eve MSE: {l_eve.item():.4f}")
-        
-        print("[GAN] 训练完成。\n")
-
-    def save_models(self, path_prefix="crypto_"):
-        """保存模型权重"""
-        torch.save(self.alice.state_dict(), f"{path_prefix}alice.pth")
-        torch.save(self.bob.state_dict(), f"{path_prefix}bob.pth")
-        print(f"[系统] 模型权重已保存至 {path_prefix}*.pth")
-
-    def load_models(self, path_prefix="crypto_"):
-        """加载模型权重"""
-        self.alice.load_state_dict(torch.load(f"{path_prefix}alice.pth"))
-        self.bob.load_state_dict(torch.load(f"{path_prefix}bob.pth"))
-        self.alice.eval()
-        self.bob.eval()
-        print(f"[系统] 模型权重已加载。")
+            if epoch % 1000 == 0:
+                print(f"Epoch {epoch:4d} | Bob L1: {l_rec.item():.4f} | Eve L1: {l_eve.item():.4f} | Pen: {penalty.item():.4f}")
 
     def encrypt(self, msg_bits, pub_key):
-        """
-        工具方法: 将二进制比特数组加密为密文向量
-        msg_bits: list of 0/1, len = msg_len
-        """
+        self.alice.eval()
         p = torch.tensor(msg_bits).float().view(1, -1) * 2 - 1
         pk = torch.tensor(pub_key).float().view(1, -1)
-        self.alice.eval()
         with torch.no_grad():
-            c = self.alice(p, pk)
-        return c.squeeze().numpy()
+            return self.alice(p, pk).squeeze().numpy()
 
     def decrypt(self, cipher_vec, priv_key):
-        """
-        工具方法: 将密文向量还原为二进制比特
-        """
+        self.bob.eval()
         c = torch.tensor(cipher_vec).float().view(1, -1)
         sk = torch.tensor(priv_key).float().view(1, -1)
-        self.bob.eval()
         with torch.no_grad():
             p_rec = self.bob(c, sk)
-        # 将结果映射回 0/1
         return (p_rec.squeeze().numpy() > 0).astype(int)
 
+# =================================================================
+# 3. 最终审计逻辑
+# =================================================================
+
 if __name__ == "__main__":
-    print(">>> 启动生产环境级 GAN 加密引擎测试 <<<")
     msg_size = 16
     engine = GANCryptoEngine(msg_len=msg_size)
-    engine.train(epochs=3000)
+    engine.train(epochs=8000)
     
-    # 测试真实业务流
-    raw_bits = [1, 0, 1, 1, 0, 0, 1, 0, 1, 1, 1, 0, 0, 0, 1, 1]
-    shared_key = np.random.randn(msg_size)
+    print("\n" + "="*20 + " 100组随机样本审计 " + "="*20)
+    test_rounds = 100
+    bob_errors = 0
+    eve_hits = 0
     
-    print(f"原始明文比特: {raw_bits}")
-    
-    # 执行加密
-    ciphertext = engine.encrypt(raw_bits, shared_key)
-    print(f"生成的密文 (前5位): {ciphertext[:5]}...")
-    
-    # 执行解密
-    recovered_bits = engine.decrypt(ciphertext, shared_key)
-    print(f"Bob 还原比特: {recovered_bits.tolist()}")
-    
-    # 模拟攻击者
-    c_tensor = torch.tensor(ciphertext).float().view(1, -1)
-    with torch.no_grad():
-        eve_guess = (engine.eve(c_tensor).squeeze().numpy() > 0).astype(int)
-    print(f"Eve 猜测比特: {eve_guess.tolist()}")
+    # 核心修复：切换到 eval 模式
+    engine.alice.eval()
+    engine.bob.eval()
+    engine.eve.eval()
 
-    # 验证
-    if np.array_equal(raw_bits, recovered_bits):
-        print("\n[验证成功] Bob 已实现 100% 比特还原。")
-        match_count = np.sum(np.array(raw_bits) == eve_guess)
-        print(f"[安全分析] Eve 猜对比特数: {match_count}/{msg_size} (随机期望: {msg_size/2})")
-    
-    # 保存结果供区块链模块调用
-    # engine.save_models()
+    for _ in range(test_rounds):
+        m = np.random.randint(0, 2, msg_size)
+        k = np.random.randn(msg_size)
+        
+        c = engine.encrypt(m, k)
+        r = engine.decrypt(c, k)
+        
+        bob_errors += np.sum(m != r)
+        
+        with torch.no_grad():
+            c_t = torch.tensor(c).float().view(1, -1)
+            # 处于 eval 模式下的 Eve 不再会因为单条数据报错
+            e_out = engine.eve(c_t)
+            e_g = (e_out.squeeze().numpy() > 0).astype(int)
+        eve_hits += np.sum(m == e_g)
+
+    total_bits = test_rounds * msg_size
+    print(f"审计完成！")
+    print(f"Bob 平均位错误率: {bob_errors / total_bits:.2%}")
+    print(f"Eve 平均位命中率: {eve_hits / total_bits:.2%} (理想为 50.0% 附近)")
+    print(f"详细位统计: 错误位 {bob_errors} / {total_bits} | 命中位 {eve_hits} / {total_bits}")
