@@ -111,3 +111,42 @@ gan_engine.py v1.3
 
 1.隐藏层中不仅仅是线性层的堆叠，在每一个线性层之后都增加了激活函数；
 2.增加了隐藏层的维度；
+
+
+
+
+
+
+
+第5次commit：
+gan_engine.py v2.0
+checkpoint.pth
+accuracy_analysis.png
+loss_analysis.png
+
+(venv) PS E:\vscode\Block> python gan_engine.py
+[GAN] 引擎启动 | 消息长度: 16 | 密钥长度: 16
+Epoch     0 | Bob L1: 0.8863 | Eve L1: 0.6052 | Pen: 0.0000 | Bob Acc: 61.11% | Eve Acc: 75.66% | LR: 0.000800
+Epoch   500 | Bob L1: 0.3798 | Eve L1: 0.8193 | Pen: 0.0339 | Bob Acc: 81.59% | Eve Acc: 59.35% | LR: 0.000800
+Epoch  1000 | Bob L1: 0.3424 | Eve L1: 0.8356 | Pen: 0.0277 | Bob Acc: 83.28% | Eve Acc: 58.45% | LR: 0.000800
+Epoch  1500 | Bob L1: 0.3395 | Eve L1: 0.8257 | Pen: 0.0318 | Bob Acc: 83.20% | Eve Acc: 58.81% | LR: 0.000800
+Epoch  2000 | Bob L1: 0.3022 | Eve L1: 0.8586 | Pen: 0.0209 | Bob Acc: 84.99% | Eve Acc: 57.18% | LR: 0.000800
+Epoch  2500 | Bob L1: 0.2961 | Eve L1: 0.8359 | Pen: 0.0281 | Bob Acc: 85.47% | Eve Acc: 58.30% | LR: 0.000800
+Epoch  3000 | Bob L1: 0.2795 | Eve L1: 0.8263 | Pen: 0.0315 | Bob Acc: 86.11% | Eve Acc: 58.69% | LR: 0.000800
+Epoch  3500 | Bob L1: 0.2752 | Eve L1: 0.8497 | Pen: 0.0241 | Bob Acc: 86.35% | Eve Acc: 57.54% | LR: 0.000800
+Epoch  4000 | Bob L1: 0.2329 | Eve L1: 0.8445 | Pen: 0.0251 | Bob Acc: 88.57% | Eve Acc: 57.84% | LR: 0.000800
+Epoch  4500 | Bob L1: 0.1892 | Eve L1: 0.8387 | Pen: 0.0269 | Bob Acc: 90.70% | Eve Acc: 58.23% | LR: 0.000800
+Epoch  5000 | Bob L1: 0.1712 | Eve L1: 0.8385 | Pen: 0.0266 | Bob Acc: 91.70% | Eve Acc: 58.13% | LR: 0.000400
+Epoch  5500 | Bob L1: 0.0834 | Eve L1: 0.8418 | Pen: 0.0255 | Bob Acc: 96.07% | Eve Acc: 58.08% | LR: 0.000400
+Epoch  6000 | Bob L1: 0.0445 | Eve L1: 0.8444 | Pen: 0.0247 | Bob Acc: 97.95% | Eve Acc: 57.89% | LR: 0.000400
+Epoch  6500 | Bob L1: 0.0419 | Eve L1: 0.8563 | Pen: 0.0211 | Bob Acc: 98.14% | Eve Acc: 57.40% | LR: 0.000400
+Epoch  7000 | Bob L1: 0.0479 | Eve L1: 0.8368 | Pen: 0.0272 | Bob Acc: 97.68% | Eve Acc: 58.28% | LR: 0.000400
+Epoch  7500 | Bob L1: 0.0429 | Eve L1: 0.8676 | Pen: 0.0181 | Bob Acc: 98.12% | Eve Acc: 56.47% | LR: 0.000400
+Epoch  8000 | Bob L1: 0.0272 | Eve L1: 0.8638 | Pen: 0.0188 | Bob Acc: 98.73% | Eve Acc: 56.81% | LR: 0.000200
+Epoch  8500 | Bob L1: 0.0169 | Eve L1: 0.8505 | Pen: 0.0225 | Bob Acc: 99.15% | Eve Acc: 57.45% | LR: 0.000200
+Epoch  9000 | Bob L1: 0.0429 | Eve L1: 0.8658 | Pen: 0.0183 | Bob Acc: 97.97% | Eve Acc: 56.93% | LR: 0.000200
+Epoch  9500 | Bob L1: 0.0170 | Eve L1: 0.8614 | Pen: 0.0195 | Bob Acc: 99.19% | Eve Acc: 56.84% | LR: 0.000200
+Epoch 10000 | Bob L1: 0.0300 | Eve L1: 0.8582 | Pen: 0.0204 | Bob Acc: 98.66% | Eve Acc: 57.01% | LR: 0.000200
+[*] 模型已保存至 checkpoint.pth
+[*] 损失曲线图已保存为: loss_analysis.png
+[*] 准确率曲线图已保存为: accuracy_analysis.png
