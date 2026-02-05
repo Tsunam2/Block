@@ -162,3 +162,14 @@ Epoch 10000 | Bob L1: 0.0300 | Eve L1: 0.8582 | Pen: 0.0204 | Bob Acc: 98.66% | 
 gan_engine.py v2.1
 main.py v2.0
 security_benchmark.py v1.0
+
+
+
+
+
+
+第7次commit：
+security_benchmark.py v1.1
+security_analysis_report.png
+
+这次成功得到了与AES对比的实验结果，图B和图C所显示的对比效果可以，图A的对比效果仍有欠缺。
