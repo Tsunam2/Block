@@ -27,14 +27,14 @@ def run_integrated_demo():
     engine = GANCryptoEngine(msg_len=msg_len)
     
     # 核心检查：如果存在预训练权重，直接加载
-    weights_path = "neural_weights.pth"
+    # 修正：gan_engine.py 默认保存名为 checkpoint.pth
+    weights_path = "checkpoint.pth" 
     if os.path.exists(weights_path):
         print(f"[系统] 检测到 {weights_path}，正在加载预训练神经模型...")
-        # 假设你的 GANCryptoEngine 内部有 torch.load 相关逻辑，或者直接在这里加载
-        # 这里演示直接加载到 engine 的模型中
-        state_dict = torch.load(weights_path)
-        engine.alice.load_state_dict(state_dict['alice_state_dict'])
-        engine.bob.load_state_dict(state_dict['bob_state_dict'])
+        # 修正：加载逻辑对齐 gan_engine 的 state 结构
+        checkpoint = torch.load(weights_path, weights_only=True)
+        engine.alice.load_state_dict(checkpoint['alice'])
+        engine.bob.load_state_dict(checkpoint['bob'])
         engine.alice.eval()
         engine.bob.eval()
     else:
@@ -46,8 +46,8 @@ def run_integrated_demo():
     
     # 2. 生成身份密钥 (RSA)
     alice_sk, alice_pk = CryptoUtils.generate_key_pair()
-    # 预共享神经密钥 (噪声向量)
-    shared_neural_key = np.random.randn(msg_len)
+    # 修正：确保 key 向量是 float32 类型，防止 torch 计算报错
+    shared_neural_key = np.random.randn(msg_len).astype(np.float32)
 
     # ==========================================
     # 流程 A: 发送方 Alice 操作
@@ -56,7 +56,7 @@ def run_integrated_demo():
     raw_bits = [1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 1, 1, 1, 0, 0]
     print(f"[Alice] 原始明文: {raw_bits}")
 
-    # Step 1: 神经加密
+    # Step 1: 神经加密 (使用 engine 新接口)
     cipher_vec = engine.encrypt(raw_bits, shared_neural_key)
     cipher_str = json.dumps(cipher_vec.tolist()) 
     
@@ -85,20 +85,17 @@ def run_integrated_demo():
     # ==========================================
     print("\n--- 流程 C: Bob 提取数据与审计 ---")
     
-    # 从链上读取最新区块的交易
     on_chain_tx = blockchain.get_last_block().transactions[0]
-    
-    # 验证身份
     sender_pk_obj = CryptoUtils.deserialize_public_key(on_chain_tx['sender_pk'])
+    
     if CryptoUtils.verify_signature(sender_pk_obj, on_chain_tx['signature'], on_chain_tx['content_hash']):
         print("[Bob] 1. RSA 身份验签通过。")
         
-        # 下载并校验
         downloaded_cipher_str = ipfs.download(on_chain_tx['cid'])
         if CryptoUtils.get_sha256(downloaded_cipher_str) == on_chain_tx['content_hash']:
             print("[Bob] 2. 密文完整性校验通过。")
             
-            # 神经解密
+            # 神经解密 (使用 engine 新接口)
             cipher_vec_final = np.array(json.loads(downloaded_cipher_str))
             recovered_bits = engine.decrypt(cipher_vec_final, shared_neural_key)
             
@@ -106,7 +103,8 @@ def run_integrated_demo():
             if np.array_equal(raw_bits, recovered_bits):
                 print(">>> 演示成功：全链路验证一致！ <<<")
             else:
-                print(">>> 提示：解密存在轻微位错误，可能需要增加 GAN 训练轮数。 <<<")
+                diff = np.sum(np.array(raw_bits) != recovered_bits)
+                print(f">>> 演示失败：解密结果有 {diff} 位错误。 <<<")
 
 if __name__ == "__main__":
     run_integrated_demo()

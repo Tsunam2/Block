@@ -114,6 +114,29 @@ class GANCryptoEngine:
             'bob_acc': [], 'eve_acc': []
         }
 
+    # ========================== 新增接口 ==========================
+    def encrypt(self, raw_bits, key_vector):
+        """Alice 加密接口"""
+        self.alice.eval()
+        with torch.no_grad():
+            # 内部自动映射 0/1 到 -1/1
+            p = torch.FloatTensor(raw_bits).view(1, -1) * 2 - 1
+            pk = torch.FloatTensor(key_vector).view(1, -1)
+            cipher_vec = self.alice(p, pk)
+            return cipher_vec.squeeze().numpy()
+
+    def decrypt(self, cipher_vec, key_vector):
+        """Bob 解密接口"""
+        self.bob.eval()
+        with torch.no_grad():
+            c = torch.FloatTensor(cipher_vec).view(1, -1)
+            sk = torch.FloatTensor(key_vector).view(1, -1)
+            recovered = self.bob(c, sk)
+            # 还原比特流
+            bits = (recovered > 0).int().squeeze().numpy()
+            return bits
+    # =============================================================
+
     def _get_acc(self, pred, target):
         """计算比特级准确率"""
         with torch.no_grad():
@@ -228,30 +251,3 @@ class GANCryptoEngine:
         plt.figure(figsize=(15, 6))
         plt.subplot(1, 2, 1)
         plt.plot(steps[mask_1000], np.array(self.stats['bob_acc'])[mask_1000], label='Bob Accuracy', color='green')
-        plt.plot(steps[mask_1000], np.array(self.stats['eve_acc'])[mask_1000], label='Eve Accuracy', color='red')
-        plt.axhline(y=0.5, color='gray', linestyle='--', label='Random (0.5)')
-        plt.title("Accuracy Trends (First 1000 Epochs)")
-        plt.xlabel("Epochs"); plt.ylabel("Accuracy"); plt.legend(); plt.grid(True)
-        
-        plt.subplot(1, 2, 2)
-        plt.plot(steps, self.stats['bob_acc'], label='Bob Accuracy', color='green')
-        plt.plot(steps, self.stats['eve_acc'], label='Eve Accuracy', color='red')
-        plt.axhline(y=0.5, color='gray', linestyle='--', label='Random (0.5)')
-        plt.title("Accuracy Trends (Full Process)")
-        plt.xlabel("Epochs"); plt.ylabel("Accuracy"); plt.legend(); plt.grid(True)
-        
-        plt.tight_layout()
-        plt.savefig("accuracy_analysis.png", dpi=300)
-        print("[*] 准确率曲线图已保存为: accuracy_analysis.png")
-        plt.show()
-
-if __name__ == "__main__":
-    engine = GANCryptoEngine(msg_len=16, key_len=16)
-    
-    try:
-        engine.train(epochs=10001)
-    except KeyboardInterrupt:
-        print("\n[!] 训练被用户手动停止")
-    finally:
-        engine.save_checkpoint()
-        engine.visualize()

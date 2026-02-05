@@ -150,3 +150,15 @@ Epoch 10000 | Bob L1: 0.0300 | Eve L1: 0.8582 | Pen: 0.0204 | Bob Acc: 98.66% | 
 [*] 模型已保存至 checkpoint.pth
 [*] 损失曲线图已保存为: loss_analysis.png
 [*] 准确率曲线图已保存为: accuracy_analysis.png
+
+
+
+
+
+
+
+
+第6次commit：
+gan_engine.py v2.1
+main.py v2.0
+security_benchmark.py v1.0
